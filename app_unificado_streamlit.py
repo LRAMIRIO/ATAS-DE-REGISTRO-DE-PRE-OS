@@ -1,0 +1,1 @@
+# Placeholder do app unificado
