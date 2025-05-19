@@ -1,175 +1,196 @@
-# Reescrever o conteúdo correto do app_unificado_streamlit.py
+# Recriar .zip após reset
+from zipfile import ZipFile
+import os
 
-conteudo_completo = """
+# Recriar conteúdo dos arquivos
+os.makedirs("super_app/scripts", exist_ok=True)
+
+# Conteúdo dos arquivos de script
+scripts = {
+    "transformar_pdf_para_xlsx.py": '''
+import streamlit as st
+import os
+import pandas as pd
+from PyPDF2 import PdfReader
+
+def converter_pdf_para_excel(pdf_path, nome_saida=None):
+    reader = PdfReader(pdf_path)
+    linhas_total = []
+    for page in reader.pages:
+        texto = page.extract_text()
+        if texto:
+            linhas_total += texto.splitlines()
+    df = pd.DataFrame(linhas_total, columns=["Linha"])
+    if not nome_saida:
+        base = os.path.basename(pdf_path).replace(".pdf", "")
+        nome_saida = f"{base}_convertido.xlsx"
+    df.to_excel(nome_saida, index=False)
+    return nome_saida
+
+def main():
+    st.header("📄 Etapa 1: Converter PDFs para Planilhas XLSX")
+    uploaded_files = st.file_uploader("📤 Envie um ou mais arquivos PDF", type="pdf", accept_multiple_files=True)
+    if st.button("🔁 Converter"):
+        for uploaded_file in uploaded_files:
+            pdf_path = f"{uploaded_file.name}"
+            with open(pdf_path, "wb") as f:
+                f.write(uploaded_file.read())
+            xlsx = converter_pdf_para_excel(pdf_path)
+            st.success(f"✅ Convertido: {xlsx}")
+            with open(xlsx, "rb") as f:
+                st.download_button(f"📥 Baixar {xlsx}", f, file_name=xlsx)
+''',
+
+    "preencher_marcas.py": '''
 import streamlit as st
 import pandas as pd
-import fitz
-from PyPDF2 import PdfReader
-from openpyxl import load_workbook
-from docx import Document
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openpyxl.styles import Alignment, Border, Side
 import os
-import zipfile
 
-st.set_page_config(page_title="Super App - ARP", layout="wide")
+def main():
+    st.header("🏷️ Etapa 2: Preencher Marcas por Item e Fornecedor")
+    modelo = st.file_uploader("📤 Envie a planilha com fornecedores e itens preenchidos", type="xlsx")
+    arquivos = st.file_uploader("📤 Envie os arquivos convertidos do PDF (.xlsx)", type="xlsx", accept_multiple_files=True)
 
-st.title("📊 Super App para Geração de Atas de Registro de Preços")
-menu = st.sidebar.radio("Etapas", ["1️⃣ PDF ➡️ Excel", "2️⃣ Preencher Marcas", "3️⃣ Preencher Valores", "4️⃣ Gerar Atas por Empresa"])
+    if st.button("🧠 Preencher Marcas"):
+        if not modelo or not arquivos:
+            st.warning("Envie os arquivos necessários.")
+            return
 
-# Etapa 1 - PDF ➡️ Excel
-if menu == "1️⃣ PDF ➡️ Excel":
-    st.header("1️⃣ Converter PDFs em Excel (.xlsx)")
-    uploaded_pdfs = st.file_uploader("📥 Envie um ou mais arquivos PDF", type=["pdf"], accept_multiple_files=True)
+        df_modelo = pd.read_excel(modelo, skiprows=2)
+        df_modelo.columns = [col.strip() for col in df_modelo.columns]
+        df_modelo["MARCA"] = ""
 
-    if uploaded_pdfs:
-        with st.spinner("Convertendo..."):
-            output_paths = []
-            for uploaded_file in uploaded_pdfs:
-                pdf_path = f"/tmp/{uploaded_file.name}"
-                with open(pdf_path, "wb") as f:
-                    f.write(uploaded_file.read())
-                reader = PdfReader(pdf_path)
-                linhas = []
-                for page in reader.pages:
-                    texto = page.extract_text()
-                    if texto:
-                        linhas += texto.splitlines()
-                df = pd.DataFrame(linhas, columns=["Linha"])
-                xlsx_path = pdf_path.replace(".pdf", "_convertido.xlsx")
-                df.to_excel(xlsx_path, index=False)
-                output_paths.append(xlsx_path)
-        st.success("✅ Conversão concluída.")
-        with zipfile.ZipFile("/tmp/convertidos.zip", "w") as zipf:
-            for p in output_paths:
-                zipf.write(p, arcname=os.path.basename(p))
-        with open("/tmp/convertidos.zip", "rb") as f:
-            st.download_button("⬇️ Baixar ZIP com arquivos convertidos", f, file_name="pdfs_convertidos.zip")
+        for arq in arquivos:
+            arq_path = arq.name
+            with open(arq_path, "wb") as f:
+                f.write(arq.read())
+            df_arq = pd.read_excel(arq_path, header=None).astype(str)
 
-# Etapa 2 - Preencher Marcas
-elif menu == "2️⃣ Preencher Marcas":
-    st.header("2️⃣ Preencher marcas dos fornecedores habilitados")
-    planilhas_marca = st.file_uploader("📥 Envie os arquivos .xlsx convertidos do passo 1", type=["xlsx"], accept_multiple_files=True)
-    planilha_base = st.file_uploader("📥 Envie a planilha modelo preenchida com os fornecedores", type="xlsx")
+            for i in range(len(df_arq) - 2):
+                linha_atual = df_arq.iloc[i, 0].strip()
+                proxima = df_arq.iloc[i+1, 0].strip()
+                marca_linha = df_arq.iloc[i+2, 0].strip()
 
-    if planilhas_marca and planilha_base:
-        marcas_dict = {}
+                if "Fornecedor" in linha_atual and "habilitado" in proxima and "Marca/Fabricante:" in marca_linha:
+                    nome_fornecedor = linha_atual.split("-", 1)[-1].strip()
+                    marca = marca_linha.split(":", 1)[-1].strip()
+                    for j, row in df_modelo.iterrows():
+                        if row["FORNECEDOR"].strip() == nome_fornecedor:
+                            df_modelo.at[j, "MARCA"] = marca
 
-        for file in planilhas_marca:
-            df = pd.read_excel(file)
-            linhas = df["Linha"].astype(str).tolist()
-            nome_empresa = ""
-            item_num = None
-            for i, linha in enumerate(linhas):
-                if "Item" in linha and "-" in linha:
-                    partes = linha.split("-")
-                    if "Item" in partes[0]:
-                        try:
-                            item_num = int(partes[0].split("Item")[1].strip())
-                        except:
-                            item_num = None
-                if "Fornecedor" in linha and i+1 < len(linhas) and "habilitado" in linhas[i+1].lower():
-                    for j in range(i, -1, -1):
-                        if "CNPJ" in linhas[j] and "-" in linhas[j]:
-                            nome_empresa = linhas[j].split("-")[-1].strip()
-                            break
-                    for k in range(i, i+5):
-                        if "Marca/Fabricante:" in linhas[k]:
-                            marca = linhas[k].split(":", 1)[-1].strip()
-                            if item_num and nome_empresa:
-                                marcas_dict[(item_num, nome_empresa)] = marca
-                            break
+        nome_saida = "planilha_com_marcas.xlsx"
+        df_modelo.to_excel(nome_saida, index=False)
+        st.success("✅ Marcas preenchidas!")
+        with open(nome_saida, "rb") as f:
+            st.download_button("📥 Baixar Planilha com Marcas", f, file_name=nome_saida)
+''',
 
-        df_base = pd.read_excel(planilha_base, skiprows=2)
-        for idx, row in df_base.iterrows():
-            chave = (int(row["ITEM"]), str(row["FORNECEDOR"]).strip())
-            if chave in marcas_dict:
-                df_base.at[idx, "MARCA"] = marcas_dict[chave]
+    "preencher_relatorio.py": '''
+import streamlit as st
+import fitz
+import re
+import pandas as pd
+from openpyxl import load_workbook
 
-        saida_marca = "/tmp/planilha_com_marcas.xlsx"
-        df_base.to_excel(saida_marca, index=False)
-        with open(saida_marca, "rb") as f:
-            st.download_button("⬇️ Baixar planilha com MARCAS preenchidas", f, file_name="planilha_com_marcas.xlsx")
+def extrair_dados_pdf(caminho_pdf):
+    padrao_geral = re.compile(
+        r"Item (\\d+)[^\\n]*?\\n.*?"
+        r"Aceito e Habilitado.*?para\\s+(.*?),\\s+CNPJ\\s+(\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2}),.*?"
+        r"melhor lance:\\s*R\\$ ([\\d\\.,]+).*?/ R\\$ ([\\d\\.,]+)",
+        re.DOTALL
+    )
+    dados = {}
+    with fitz.open(caminho_pdf) as doc:
+        for page in doc:
+            texto = page.get_text()
+            for match in padrao_geral.findall(texto):
+                item = int(match[0])
+                empresa = match[1].replace("\\n", " ").strip()
+                valor_unit = float(match[3].replace(".", "").replace(",", "."))
+                valor_total = float(match[4].replace(".", "").replace(",", "."))
+                dados[item] = {
+                    "fornecedor": empresa,
+                    "valor_unitario": valor_unit,
+                    "valor_total": valor_total
+                }
+    return dados
 
-# Etapa 3 - Preencher Valores
-elif menu == "3️⃣ Preencher Valores":
-    st.header("3️⃣ Preencher VALORES e FORNECEDORES a partir do PDF de julgamento")
-    pdf_julgamento = st.file_uploader("📥 Envie o PDF do julgamento (consolidado)", type="pdf")
-    planilha_com_marcas = st.file_uploader("📥 Envie a planilha preenchida com marcas", type="xlsx")
+def main():
+    st.header("📑 Etapa 3: Preencher Relatório de Julgamento")
+    pdf = st.file_uploader("📤 Envie o arquivo PDF de julgamento", type="pdf")
+    modelo = st.file_uploader("📤 Envie a planilha com marcas preenchidas", type="xlsx")
 
-    if pdf_julgamento and planilha_com_marcas:
-        import re
-        pdf_path = f"/tmp/{pdf_julgamento.name}"
-        with open(pdf_path, "wb") as f:
-            f.write(pdf_julgamento.read())
+    if st.button("✅ Preencher Dados do Relatório"):
+        if not pdf or not modelo:
+            st.warning("Envie ambos os arquivos.")
+            return
 
-        padrao = re.compile(
-            r"Item (\d+)[^\n]*?\n.*?"
-            r"Aceito e Habilitado.*?para\s+(.*?),\s+CNPJ\s+(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}),.*?"
-            r"melhor lance:\s*R\\$ ([\d\\.,]+).*?/ R\\$ ([\d\\.,]+)",
-            re.DOTALL
-        )
+        with open(pdf.name, "wb") as f:
+            f.write(pdf.read())
 
-        dados = {}
-        with fitz.open(pdf_path) as doc:
-            for page in doc:
-                texto = page.get_text()
-                for match in padrao.findall(texto):
-                    item = int(match[0])
-                    empresa = match[1].replace("\n", " ").strip()
-                    valor_unit = float(match[3].replace(".", "").replace(",", "."))
-                    valor_total = float(match[4].replace(".", "").replace(",", "."))
-                    dados[item] = {
-                        "fornecedor": empresa,
-                        "valor_unitario": valor_unit,
-                        "valor_total": valor_total
-                    }
-
-        wb = load_workbook(planilha_com_marcas)
+        dados = extrair_dados_pdf(pdf.name)
+        wb = load_workbook(modelo)
         ws = wb.active
+
         for row in ws.iter_rows(min_row=4, max_col=9):
             try:
-                item_val = row[0].value
-                item_num = int(str(item_val).replace(".", "").strip())
-                if item_num in dados:
-                    row[6].value = dados[item_num]["valor_unitario"]
-                    row[7].value = dados[item_num]["valor_total"]
-                    row[8].value = dados[item_num]["fornecedor"]
+                item = int(str(row[0].value).replace(".", ""))
+                if item in dados:
+                    row[6].value = dados[item]["valor_unitario"]
+                    row[7].value = dados[item]["valor_total"]
+                    row[8].value = dados[item]["fornecedor"]
                 else:
                     row[8].value = "Fracassado e/ou Deserto"
             except:
                 row[8].value = "Fracassado e/ou Deserto"
 
-        saida_valores = "/tmp/planilha_completa.xlsx"
-        wb.save(saida_valores)
-        with open(saida_valores, "rb") as f:
-            st.download_button("⬇️ Baixar planilha com VALORES e FORNECEDORES", f, file_name="planilha_completa.xlsx")
+        nome_saida = "planilha_com_relatorio.xlsx"
+        wb.save(nome_saida)
+        st.success("✅ Dados preenchidos com sucesso!")
+        with open(nome_saida, "rb") as f:
+            st.download_button("📥 Baixar Planilha Final", f, file_name=nome_saida)
+''',
 
-# Etapa 4 - Gerar Atas
-elif menu == "4️⃣ Gerar Atas por Empresa":
-    st.header("4️⃣ Gerar atas de registro de preços por empresa")
-    planilha_final = st.file_uploader("📥 Envie a planilha final com todas as colunas preenchidas", type="xlsx")
+    "gerar_atas.py": '''
+import streamlit as st
+import pandas as pd
+import os
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Side
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from zipfile import ZipFile
 
-    if planilha_final:
-        df = pd.read_excel(planilha_final, skiprows=2)
+def main():
+    st.header("📄 Etapa 4: Gerar Atas por Empresa (Excel e Word)")
+    xlsx_file = st.file_uploader("📤 Envie a planilha final preenchida (.xlsx)", type="xlsx")
+
+    if st.button("📁 Gerar Arquivos"):
+        if not xlsx_file:
+            st.warning("Envie a planilha preenchida.")
+            return
+
+        df = pd.read_excel(xlsx_file, skiprows=2)
         df.columns = [col.strip() for col in df.columns]
-
-        output_dir = "/tmp/atas"
+        output_dir = "outputs"
         os.makedirs(output_dir, exist_ok=True)
+
+        borda_fina = Border(left=Side(style='thin'), right=Side(style='thin'),
+                            top=Side(style='thin'), bottom=Side(style='thin'))
 
         for fornecedor, grupo in df.groupby("FORNECEDOR"):
             nome_limpo = fornecedor[:40].replace(" ", "_").replace("/", "-")
             grupo["ITEM"] = grupo["ITEM"].astype("Int64")
-            grupo_formatado = grupo[[
-                "ITEM", "DESCRIÇÃO DO MATERIAL", "MARCA", "UNIDADE",
-                "QUANTIDADE", "VALOR UNITÁRIO", "VALOR TOTAL"
-            ]]
+            grupo_formatado = grupo[["ITEM", "DESCRIÇÃO DO MATERIAL", "MARCA", "UNIDADE",
+                                     "QUANTIDADE", "VALOR UNITÁRIO", "VALOR TOTAL"]]
 
+            # Excel
             wb = Workbook()
             ws = wb.active
             ws.title = "Itens Vencedores"
             ws.append(grupo_formatado.columns.tolist())
+
             for _, row in grupo_formatado.iterrows():
                 ws.append(row.tolist())
 
@@ -181,8 +202,7 @@ elif menu == "4️⃣ Gerar Atas por Empresa":
                         cell.alignment = Alignment(horizontal="justify", vertical="center", wrap_text=True)
                     else:
                         cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.border = Border(left=Side(style='thin'), right=Side(style='thin'),
-                                         top=Side(style='thin'), bottom=Side(style='thin'))
+                    cell.border = borda_fina
 
             for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
                 row[5].number_format = 'R$ #,##0.00'
@@ -199,6 +219,7 @@ elif menu == "4️⃣ Gerar Atas por Empresa":
             excel_path = f"{output_dir}/{nome_limpo}.xlsx"
             wb.save(excel_path)
 
+            # Word
             doc = Document()
             doc.add_heading(f'Fornecedor: {fornecedor}', 0)
             table = doc.add_table(rows=1, cols=len(grupo_formatado.columns))
@@ -220,18 +241,59 @@ elif menu == "4️⃣ Gerar Atas por Empresa":
             docx_path = f"{output_dir}/{nome_limpo}.docx"
             doc.save(docx_path)
 
-        zip_path = "/tmp/atas_por_empresa.zip"
-        with zipfile.ZipFile(zip_path, "w") as zipf:
+        # Compactar
+        zip_path = "atas_geradas.zip"
+        with ZipFile(zip_path, "w") as zipf:
             for f in os.listdir(output_dir):
                 zipf.write(os.path.join(output_dir, f), arcname=f)
 
         with open(zip_path, "rb") as f:
-            st.download_button("⬇️ Baixar ZIP com Atas", f, file_name="atas_por_empresa.zip")
-"""
+            st.download_button("📥 Baixar Atas (.zip)", f, file_name=zip_path)
+'''
+}
 
-# Salvar no caminho correto para download
-path_final_script = "/mnt/data/app_unificado_streamlit.py"
-with open(path_final_script, "w", encoding="utf-8") as f:
-    f.write(conteudo_completo)
+# Criar scripts
+for nome, conteudo in scripts.items():
+    with open(f"super_app/scripts/{nome}", "w", encoding="utf-8") as f:
+        f.write(conteudo.strip())
 
-path_final_script
+# Criar arquivos principais
+with open("super_app/app_unificado_streamlit.py", "w", encoding="utf-8") as f:
+    f.write("""
+import streamlit as st
+from scripts import transformar_pdf_para_xlsx, preencher_marcas, preencher_relatorio, gerar_atas
+
+st.set_page_config(page_title="Super App Streamlit", layout="wide")
+st.title("📄 Super App de Atas de Registro de Preços")
+
+abas = st.tabs(["1️⃣ PDF ➜ XLSX", "2️⃣ Preencher Marcas", "3️⃣ Preencher Relatório", "4️⃣ Gerar Atas por Empresa"])
+
+with abas[0]:
+    transformar_pdf_para_xlsx.main()
+
+with abas[1]:
+    preencher_marcas.main()
+
+with abas[2]:
+    preencher_relatorio.main()
+
+with abas[3]:
+    gerar_atas.main()
+""")
+
+with open("super_app/requirements.txt", "w") as f:
+    f.write("streamlit\npandas\nopenpyxl\nPyMuPDF\npython-docx")
+
+with open("super_app/README.md", "w") as f:
+    f.write("# Super App Streamlit para Atas de Registro de Preços\n\nEste app realiza o processo completo:\n- PDF ➜ XLSX\n- Preenche marcas\n- Preenche relatório\n- Gera atas por fornecedor\n\nExecute com:\n```bash\nstreamlit run app_unificado_streamlit.py\n```")
+
+# Compactar
+zip_path = "/mnt/data/super_app_streamlit_completo.zip"
+with ZipFile(zip_path, "w") as zipf:
+    for root, _, files in os.walk("super_app"):
+        for file in files:
+            full_path = os.path.join(root, file)
+            arcname = os.path.relpath(full_path, "super_app")
+            zipf.write(full_path, arcname=os.path.join("super_app", arcname))
+
+zip_path
