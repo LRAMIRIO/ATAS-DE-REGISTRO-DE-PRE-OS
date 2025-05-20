@@ -1,2 +1,3 @@
-# ATAS-DE-REGISTRO-DE-PRE-OS
-Criar atas de registro de preços
+# Super App Streamlit
+
+Aplicação para processamento completo de atas por 4 etapas integradas.
