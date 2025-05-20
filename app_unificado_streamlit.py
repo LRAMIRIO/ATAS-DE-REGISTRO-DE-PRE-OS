@@ -44,10 +44,12 @@ def preencher_marcas(lista_df, planilha_modelo):
     return planilha
 
 def preencher_dados_relatorio(planilha, arquivo_pdf):
-    padrao = re.compile(
-        r"Item (\d+)[^
-]*?
-.*?"
+   padrao_geral = re.compile(
+    r"Item (\d+)[^\n]*?\n.*?"
+    r"Aceito e Habilitado.*?para\s+(.*?),\s+CNPJ\s+(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}),.*?"
+    r"melhor lance:\s*R\$ ([\d\.,]+).*?/ R\$ ([\d\.,]+)",
+    re.DOTALL
+)
         r"Aceito e Habilitado.*?para\s+(.*?),\s+CNPJ\s+(\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}),.*?"
         r"melhor lance:\s*R\$ ([\d\.,]+).*?/ R\$ ([\d\.,]+)", re.DOTALL)
     dados = {}
